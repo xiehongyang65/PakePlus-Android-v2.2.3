@@ -1,0 +1,13 @@
+{
+  "name": "web2app",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "@electron/packager . Web2App --platform=win32 --arch=x64 --out=./dist --overwrite --icon=null"
+  },
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "@electron/packager": "^18.3.2"
+  }
+}
