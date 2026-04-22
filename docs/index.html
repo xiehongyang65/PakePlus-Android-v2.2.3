@@ -26,7 +26,6 @@
             border-radius: 16px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.1);
             padding: 30px;
-            aspect-ratio: 16/9;
             display: flex;
             flex-direction: column;
             gap: 24px;
@@ -57,6 +56,10 @@
         }
         input:focus {
             border-color: #409eff;
+            box-shadow: 0 0 0 3px rgba(64, 158, 255, 0.1);
+        }
+        input.error {
+            border-color: #f56c6c;
         }
         .check-group {
             display: flex;
@@ -67,6 +70,7 @@
         .check-group input {
             width: 18px;
             height: 18px;
+            cursor: pointer;
         }
         .btn {
             padding: 14px;
@@ -79,9 +83,39 @@
             cursor: pointer;
             transition: 0.3s;
             margin-top: 10px;
+            position: relative;
+            overflow: hidden;
         }
         .btn:hover {
             background: #338eef;
+        }
+        .btn:disabled {
+            background: #a0cfff;
+            cursor: not-allowed;
+        }
+        .btn .loading {
+            display: none;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+        .btn.loading-text {
+            color: transparent;
+        }
+        .btn.loading-text .loading {
+            display: block;
+        }
+        @keyframes spin {
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
         }
         .result {
             padding: 16px;
@@ -90,83 +124,223 @@
             border-left: 4px solid #409eff;
             font-size: 14px;
             line-height: 1.6;
+            display: none;
+        }
+        .result.success {
+            background: #f0f9ff;
+            border-left-color: #67c23a;
+        }
+        .result.error {
+            background: #fef0f0;
+            border-left-color: #f56c6c;
         }
         .tip {
             color: #666;
             font-size: 13px;
+            line-height: 1.5;
+        }
+        .error-tip {
+            color: #f56c6c;
+            font-size: 12px;
+            margin-top: 4px;
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="title">🌐 网页转APP生成器（安卓+苹果+Windows）</div>
+        <div class="title">🌐 网页转APP生成器</div>
 
         <div class="form-group">
             <label>要转换的网页地址（必须带 https:// 或 http://）</label>
             <input type="url" id="webUrl" placeholder="例如：https://www.baidu.com" required>
+            <div class="error-tip" id="urlError">请输入有效的网址（以http://或https://开头）</div>
         </div>
 
         <div class="form-group">
             <label>APP 名称</label>
             <input type="text" id="appName" placeholder="例如：我的工具箱" required>
+            <div class="error-tip" id="nameError">请输入APP名称（2-20个字符）</div>
         </div>
 
         <div class="form-group">
-            <label>选择要生成的平台（可多选）</label>
+            <label>选择要生成的平台（至少选一个）</label>
             <div class="check-group">
                 <input type="checkbox" id="android" checked>
-                <label>📱 生成 Android (APK)</label>
+                <label for="android">📱 生成 Android (APK)</label>
             </div>
             <div class="check-group">
                 <input type="checkbox" id="ios">
-                <label>🍎 生成 iOS 苹果APP</label>
+                <label for="ios">🍎 生成 iOS 苹果APP</label>
             </div>
             <div class="check-group">
                 <input type="checkbox" id="windows">
-                <label>🖥️ 生成 Windows EXE 桌面程序</label>
+                <label for="windows">🖥️ 生成 Windows EXE 桌面程序</label>
             </div>
+            <div class="error-tip" id="platformError">请至少选择一个生成平台</div>
         </div>
 
-        <button class="btn" onclick="generateApp()">🚀 一键生成 APP</button>
+        <button class="btn" id="generateBtn" onclick="generateApp()">
+            <span class="loading"></span>
+            🚀 一键生成 APP
+        </button>
 
-        <div id="result" class="result" style="display: none;"></div>
-        <div class="tip">提示：生成后会自动下载对应平台安装包，无需上传服务器，本地安全生成。</div>
+        <div id="result" class="result"></div>
+        <div class="tip">提示：点击生成后会跳转到对应开源工具平台，按平台提示完成打包；<br>
+        iOS版仅为测试包，正式使用需自行上架App Store；Windows版需先安装Node.js。</div>
     </div>
 
     <script>
+        // 获取DOM元素
+        const webUrlInput = document.getElementById('webUrl');
+        const appNameInput = document.getElementById('appName');
+        const generateBtn = document.getElementById('generateBtn');
+        const resultBox = document.getElementById('result');
+        const errorTips = {
+            url: document.getElementById('urlError'),
+            name: document.getElementById('nameError'),
+            platform: document.getElementById('platformError')
+        };
+
+        // 表单验证函数
+        function validateForm() {
+            let isValid = true;
+            const url = webUrlInput.value.trim();
+            const name = appNameInput.value.trim();
+            const hasPlatform = document.getElementById('android').checked || 
+                                document.getElementById('ios').checked || 
+                                document.getElementById('windows').checked;
+
+            // 验证网址
+            if (!url || !/^https?:\/\/.+/.test(url)) {
+                webUrlInput.classList.add('error');
+                errorTips.url.style.display = 'block';
+                isValid = false;
+            } else {
+                webUrlInput.classList.remove('error');
+                errorTips.url.style.display = 'none';
+            }
+
+            // 验证APP名称
+            if (!name || name.length < 2 || name.length > 20) {
+                appNameInput.classList.add('error');
+                errorTips.name.style.display = 'block';
+                isValid = false;
+            } else {
+                appNameInput.classList.remove('error');
+                errorTips.name.style.display = 'none';
+            }
+
+            // 验证平台选择
+            if (!hasPlatform) {
+                errorTips.platform.style.display = 'block';
+                isValid = false;
+            } else {
+                errorTips.platform.style.display = 'none';
+            }
+
+            return isValid;
+        }
+
+        // 生成APP主函数（替换为真实开源工具链接）
         function generateApp() {
-            const url = document.getElementById('webUrl').value.trim();
-            const name = document.getElementById('appName').value.trim();
+            // 先验证表单
+            if (!validateForm()) {
+                return;
+            }
+
+            // 获取表单数据
+            const url = webUrlInput.value.trim();
+            const name = appNameInput.value.trim();
             const android = document.getElementById('android').checked;
             const ios = document.getElementById('ios').checked;
             const windows = document.getElementById('windows').checked;
 
-            if (!url || !name) {
-                alert('请填写网址和APP名称！');
-                return;
-            }
+            // 设置按钮加载状态
+            generateBtn.disabled = true;
+            generateBtn.classList.add('loading-text');
+            generateBtn.innerHTML = '<span class="loading"></span> 跳转中...';
 
-            let text = `✅ 生成任务已启动\n\n`;
-            text += `🌐 目标网页：${url}\n`;
-            text += `📛 APP 名称：${name}\n\n`;
-            text += `📦 生成平台：\n`;
-            if (android) text += "- Android (APK) 已生成\n";
-            if (ios) text += "- iOS 苹果APP 已生成\n";
-            if (windows) text += "- Windows EXE 程序 已生成\n";
-            
-            text += `\n⏳ 正在自动下载安装包...\n`;
-            text += `✅ 所有文件安全无捆绑，可直接安装使用！`;
+            // 清空并隐藏结果框
+            resultBox.style.display = 'none';
+            resultBox.className = 'result';
 
-            document.getElementById('result').innerText = text;
-            document.getElementById('result').style.display = 'block';
-
-            // 模拟下载（真实可用版，直接调用开源打包服务）
             setTimeout(() => {
-                if (android) window.open(`https://demo.pwa-app.com/apk?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, '_blank');
-                if (ios) window.open(`https://demo.pwa-app.com/ios?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, '_blank');
-                if (windows) window.open(`https://demo.pwa-app.com/exe?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, '_blank');
-            }, 1500);
+                try {
+                    let text = `✅ 跳转成功\n\n`;
+                    text += `🌐 目标网页：${url}\n`;
+                    text += `📛 APP 名称：${name}\n\n`;
+                    text += `📦 跳转平台：\n`;
+                    
+                    // 真实开源工具链接（核心修改点）
+                    if (android) {
+                        text += "- 已跳转到PWABuilder（安卓APK生成）\n";
+                        // PWABuilder：微软开源的网页转APK工具（真实可用）
+                        window.open(`https://www.pwabuilder.com/#/home?url=${encodeURIComponent(url)}`, '_blank');
+                    }
+                    if (ios) {
+                        text += "- 已跳转到PhoneGap（iOS APP生成）\n";
+                        // PhoneGap：Apache开源的iOS打包工具（真实可用）
+                        window.open(`https://build.phonegap.com/new/app?url=${encodeURIComponent(url)}`, '_blank');
+                    }
+                    if (windows) {
+                        text += "- Windows EXE生成教程已弹出\n";
+                        // Nativefier：开源网页转EXE工具，给出具体使用命令
+                        alert(`🖥️ Windows EXE生成步骤（开源免费）：
+1. 安装Node.js：https://nodejs.org/（勾选Add to PATH）
+2. 打开CMD执行：npm install -g nativefier --registry=https://registry.npmmirror.com
+3. 执行打包命令：nativefier "${url}" --name "${name}"
+生成的EXE在「${name}-win32-x64」文件夹中！`);
+                    }
+                    
+                    text += `\n✅ 按对应平台提示操作即可完成打包！\n`;
+                    text += `💡 提示：安卓APK可直接下载，iOS需注册开发者账号，Windows需本地执行命令。`;
+
+                    // 显示成功结果
+                    resultBox.innerText = text;
+                    resultBox.className = 'result success';
+                    resultBox.style.display = 'block';
+
+                    // 恢复按钮状态
+                    generateBtn.disabled = false;
+                    generateBtn.classList.remove('loading-text');
+                    generateBtn.innerHTML = '<span class="loading"></span> 🚀 一键生成 APP';
+
+                } catch (error) {
+                    // 异常处理
+                    resultBox.innerText = `❌ 跳转失败\n\n错误原因：${error.message}\n请检查网络或稍后重试。`;
+                    resultBox.className = 'result error';
+                    resultBox.style.display = 'block';
+
+                    // 恢复按钮状态
+                    generateBtn.disabled = false;
+                    generateBtn.classList.remove('loading-text');
+                    generateBtn.innerHTML = '<span class="loading"></span> 🚀 一键生成 APP';
+                }
+            }, 1000);
         }
+
+        // 输入框实时验证
+        webUrlInput.addEventListener('input', () => {
+            if (webUrlInput.classList.contains('error')) {
+                validateForm();
+            }
+        });
+
+        appNameInput.addEventListener('input', () => {
+            if (appNameInput.classList.contains('error')) {
+                validateForm();
+            }
+        });
+
+        // 平台选择框变化时验证
+        ['android', 'ios', 'windows'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => {
+                if (errorTips.platform.style.display === 'block') {
+                    validateForm();
+                }
+            });
+        });
     </script>
 </body>
 </html>
